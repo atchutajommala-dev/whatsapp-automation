@@ -10,7 +10,7 @@ from typing import List
 
 import requests
 from PIL import Image, ImageEnhance, ImageChops
-from pdf2image import convert_from_bytes
+import fitz  # PyMuPDF
 from google.oauth2.service_account import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -95,13 +95,23 @@ def crop_white_space(img: Image.Image) -> Image.Image:
 
 
 def export_and_upload_images() -> List[str]:
-    creds = Credentials.from_service_account_file(
-        KEY_FILE,
-        scopes=[
-            "https://www.googleapis.com/auth/drive.readonly",
-            "https://www.googleapis.com/auth/spreadsheets.readonly",
-        ],
-    )
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    scopes = [
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+    ]
+    
+    if creds_json:
+        import json
+        creds = Credentials.from_service_account_info(
+            json.loads(creds_json),
+            scopes=scopes,
+        )
+    else:
+        creds = Credentials.from_service_account_file(
+            KEY_FILE,
+            scopes=scopes,
+        )
 
     refresh_creds(creds)
 
@@ -140,8 +150,10 @@ def export_and_upload_images() -> List[str]:
         )
         response.raise_for_status()
 
-        pages = convert_from_bytes(response.content, dpi=600)
-        img = pages[0].convert("RGB")
+        doc = fitz.open(stream=response.content, filetype="pdf")
+        page = doc.load_page(0)
+        pix = page.get_pixmap(dpi=600)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         img = ImageEnhance.Sharpness(img).enhance(2.0)
         img = crop_white_space(img)
 
@@ -215,8 +227,8 @@ if __name__ == "__main__":
     if missing:
         raise EnvironmentError(f"Missing secrets: {', '.join(missing)}")
 
-    if not os.path.exists(KEY_FILE):
-        raise FileNotFoundError("credentials.json not found")
+    if not os.getenv("GOOGLE_CREDENTIALS_JSON") and not os.path.exists(KEY_FILE):
+        raise FileNotFoundError("credentials.json not found and GOOGLE_CREDENTIALS_JSON env var not set")
 
     Image.MAX_IMAGE_PIXELS = 500_000_000
 
