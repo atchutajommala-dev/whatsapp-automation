@@ -1,5 +1,5 @@
 import os
-import time
+import json
 from datetime import datetime
 from upstash_redis import Redis
 
@@ -10,39 +10,54 @@ redis = Redis(
 )
 
 def log_run(automation_name, status, message="", duration=0):
-    """
-    Logs an automation run to Vercel KV.
-    """
     if not os.environ.get("KV_REST_API_URL"):
-        print(f"Skipping KV logging for {automation_name}: KV_REST_API_URL not set")
         return
 
     timestamp = datetime.now().isoformat()
     log_entry = {
         "timestamp": timestamp,
         "name": automation_name,
-        "status": status, # 'success' or 'error'
-        "message": message[:1000], # Truncate long logs
+        "status": status,
+        "message": message[:1000],
         "duration": round(duration, 2)
     }
     
-    # Store in a list for each automation
     redis.lpush(f"logs:{automation_name}", log_entry)
-    # Keep only last 50 logs
     redis.ltrim(f"logs:{automation_name}", 0, 49)
-    
-    # Also update global last run status
     redis.hset("automation:status", automation_name, log_entry)
-    
-    # Add to global activity feed
     redis.lpush("activity_feed", log_entry)
     redis.ltrim("activity_feed", 0, 99)
 
-def get_logs(automation_name):
-    return redis.lrange(f"logs:{automation_name}", 0, -1)
+# --- Dynamic Automation Management ---
 
-def get_latest_statuses():
-    return redis.hgetall("automation:status")
+def get_automations():
+    """Returns a list of all dynamic automations."""
+    ids = redis.smembers("automation_ids")
+    if not ids:
+        # Seed with defaults if empty
+        defaults = [
+            {"id": "apr26", "name": "APR 26 Performance", "script": "apr-26_performance.py", "sheet_id": "APR26_SHEET_ID", "destinations": "APR26_DESTINATIONS"},
+            {"id": "overall", "name": "Overall Manish", "script": "overall_manish.py", "sheet_id": "OVERALL_SHEET_ID", "destinations": "OVERALL_DESTINATIONS"},
+            {"id": "gew", "name": "GEW Whatsapp", "script": "gew_whatsapp.py", "sheet_id": "GEW_SHEET_ID", "destinations": "GEW_DESTINATIONS"},
+            {"id": "new_biz", "name": "New Biz Cat", "script": "new_biz_cat_whatsapp.py", "sheet_id": "NEW_BIZ_SHEET_ID", "destinations": "NEW_BIZ_DESTINATIONS"}
+        ]
+        for item in defaults:
+            save_automation(item)
+        return defaults
+    
+    return [redis.hgetall(f"automation:{aid}") for aid in ids]
 
-def get_activity_feed():
-    return redis.lrange("activity_feed", 0, 19)
+def save_automation(data):
+    """Saves or updates an automation configuration."""
+    aid = data["id"]
+    redis.sadd("automation_ids", aid)
+    redis.hset(f"automation:{aid}", data)
+
+def delete_automation(aid):
+    """Deletes an automation configuration."""
+    name = redis.hget(f"automation:{aid}", "name")
+    redis.srem("automation_ids", aid)
+    redis.delete(f"automation:{aid}")
+    if name:
+        redis.delete(f"logs:{name}")
+        redis.hdel("automation:status", name)
