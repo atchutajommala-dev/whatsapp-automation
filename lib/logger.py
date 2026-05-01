@@ -22,9 +22,7 @@ def log_run(automation_name, status, message="", duration=0):
         "duration": round(duration, 2)
     }
     
-    # Store as JSON string for consistency
     log_json = json.dumps(log_entry)
-    
     redis.lpush(f"logs:{automation_name}", log_json)
     redis.ltrim(f"logs:{automation_name}", 0, 49)
     redis.hset("automation:status", automation_name, log_json)
@@ -34,30 +32,40 @@ def log_run(automation_name, status, message="", duration=0):
 def get_automations():
     ids = redis.smembers("automation_ids")
     if not ids:
-        # Default starting set
+        # Re-seed with full configurations for the master script
         defaults = [
-            {"id": "apr26", "name": "APR 26 Performance", "script": "apr-26_performance.py", "sheet_id": "APR26_SHEET_ID", "destinations": "APR26_DESTINATIONS", "cron": "0 4 * * *"},
-            {"id": "overall", "name": "Overall Manish", "script": "overall_manish.py", "sheet_id": "OVERALL_SHEET_ID", "destinations": "OVERALL_DESTINATIONS", "cron": "30 4 * * *"},
-            {"id": "gew", "name": "GEW Whatsapp", "script": "gew_whatsapp.py", "sheet_id": "GEW_SHEET_ID", "destinations": "GEW_DESTINATIONS", "cron": "0 5 * * *"},
-            {"id": "new_biz", "name": "New Biz Cat", "script": "new_biz_cat_whatsapp.py", "sheet_id": "NEW_BIZ_SHEET_ID", "destinations": "NEW_BIZ_DESTINATIONS", "cron": "0 5 * * *"}
+            {
+                "id": "apr26", 
+                "name": "APR 26 Performance", 
+                "sheet_id": os.environ.get("APR26_SHEET_ID", "1S_5N..."), 
+                "sheet_name": "Top Categories",
+                "ranges": "A1:Q20",
+                "destinations": os.environ.get("APR26_DESTINATIONS", "916303054457"), 
+                "cron": "0 4 * * *"
+            },
+            {
+                "id": "overall", 
+                "name": "Overall Manish", 
+                "sheet_id": os.environ.get("OVERALL_SHEET_ID", "1W_..."), 
+                "sheet_name": "Whatsapp SS",
+                "ranges": "A2:W17,A21:AA49,A53:W67,A71:W77",
+                "destinations": os.environ.get("OVERALL_DESTINATIONS", "916303054457"), 
+                "cron": "30 4 * * *"
+            }
         ]
         for item in defaults:
             save_automation(item)
         return defaults
     
-    # Ensure we decode everything properly
     autos = []
     for aid in ids:
         raw = redis.hgetall(f"automation:{aid}")
-        # Upstash might return dict with bytes or strings
-        clean = {k: v for k, v in raw.items()}
-        autos.append(clean)
+        autos.append(raw)
     return autos
 
 def save_automation(data):
     aid = data["id"]
     redis.sadd("automation_ids", aid)
-    # Store all fields in the hash
     redis.hset(f"automation:{aid}", data)
 
 def delete_automation(aid):
