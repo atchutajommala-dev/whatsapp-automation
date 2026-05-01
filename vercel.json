@@ -1,20 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/apr26",
-      "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/overall",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/gew",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/new_biz",
-      "schedule": "0 5 * * *"
+      "path": "/api/scheduler",
+      "schedule": "* * * * *"
     }
   ]
 }
